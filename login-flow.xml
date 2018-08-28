@@ -1,0 +1,202 @@
+<var name="credential" class="org.apereo.cas.authentication.UsernamePasswordCredential"/>
+
+<on-start>
+	<evaluate expression="initialFlowSetupAction"/>
+</on-start>
+
+<action-state id="clientAction">
+	<evaluate expression="clientAction"/>
+	<transition on="success" to="sendTicketGrantingTicket"/>
+	<transition on="error" to="start"/>
+	<transition on="stop" to="stopWebflow"/>
+</action-state>
+
+<view-state id="stopWebflow" view="casPac4jStopWebflow" model="credential">
+	<evaluate expression=" new AbstractAction()"/>
+<view-state/>
+
+<action-state id="tokenAuthenticationCheck">
+	<evaluate expression="tokenAuthenticationAction"/> 
+	<transition on="success" to="sendTicketGrantingTicket"/>
+	<transition to="initialAuthenticationRequestValidationCheck"/>
+	<on-exit expression="clearWebflowCredentialsAction"/>
+</action-state>
+
+
+<action-state id="initialAuthenticationRequestValidationCheck">
+	<evaluate expression="initialAuthenticationRequestValidationAction"/>
+	<transition on="authenticationFailure" to="handleAuthenticationFailure"/>
+	<transition on="error" to="initializeLoginForm"/>
+	<transition on="success" to="ticketGrantingTicketCheck"/>
+	<transition on="successWithWarnings" to="ticketGrantingTicketCheck"/>
+	<transition on="mfa-gauth" to="mfa-gauth"/>
+</action-state>
+
+<action-state id="ticketGrantingTicketCheck">
+	<evaluate expression="ticketGrantingTicketCheckAction"/>
+	<transition on="notExists" to="gatewayRequestCheck"/>
+	<transition on="invalid" to="terminateSession"/>
+	<transition on="valid" to="hasServiceCheck"/>
+</action-state>
+
+<decision-state id="gatewayRequestCheck">
+	<if test="requestParameters.gateway != '' and requestParameters.gateway != null and flowScope.service != null" then="gatewayServicesManagementCheck" else="serviceAuthorizationCheck"/>
+</decision-state>
+
+<action-state id="serviceAuthorizationCheck">
+	<evaluate expression="serviceAuthorizationCheck"/>
+	<transition to="initializeLoginForm"/>
+</action-state>
+
+<action-state id="initializeLoginForm">
+	<evaluate expression="initializeLoginAction" />
+	<transition on="success" to="viewLoginForm"/>
+</action-state>
+
+<view-state id="viewLoginForm" view="casLoginView" model="credential">
+	<binder>
+		<binding property="username" required="true"/>
+		<binding property="password" required="true"/>
+	</binder>
+	<transition on="submit" bind="true" validate="true" to="realSubmit" history="invalidate"/>
+</view-state>
+
+<action-state id="realSubmit">
+	<evaluate expression="authenticationViaFormAction"/>
+	<transition on="warn" to="warn"/>
+	<transition on="success" to="sendTicketGrantingTicket"/>
+	<transition on="successWithWarnings" to="showAuthenticationWarningMessages"/>
+	<transition on="authenticationFailure" to="handleAuthenticationFailure"/>
+	<transition on="error" to="initializeLoginForm"/>
+	<transition on="mfa-gauth" to="mfa-gauth"/>
+</action-state>
+
+<subflow-state id="mfa-gauth" subflow="mfa-gauth">
+    <transition on="success" to="sendTicketGrantingTicket"/>
+    <transition on="successWithWarnings" to="showAuthenticationWarningMessages"/>
+</subflow-state>
+
+<action-state id="sendTicketGrantingTicket">
+	<evaluate expression="sendTicketGrantingTicketAction"/>
+	<transition on="success" to="serviceCheck"/>
+</action-state>
+
+<decision-state id="serviceCheck">
+	<if test="flowScope.service != null" then="generateServiceTicket" else="viewGenericLoginSuccess"/>
+</decision-state>
+
+<action-state id="generateServiceTicket">
+	<evaluate expression="generateServiceTicketAction"/>
+	<transition on="warn" to="warn"/>
+	<transition on="success" to="redirect"/>
+	<transition on="authenticationFailure" to="handleAuthenticationFailure"/>
+	<transition on="gateway" to="gatewayServicesManagementCheck"/>
+	<transition on="error" to="initializeLoginForm"/>
+</action-state>
+
+<action-state id="redirect">
+	<evaluate expression="redirectToServiceAction"/>
+	<transition on="post" to="postView"/>
+	<transition on="header" to="headerView"/>
+	<transition on="redirect" to="redirectView"/>
+</action-state>
+
+<end-state id="redirectView" view="externalRedirect:${requestScope.url}" />
+
+<end-state id="viewGenericLoginSuccess">
+	<on-entry>
+		<evaluate expression="genericSuccessViewAction"/>
+	</on-entry>
+</end-state>
+
+<decision-state id="hasServiceCheck">
+	<if test="flowScope.service != null" then="renewRequestCheck" else="viewGenericLoginSuccess"/>
+</decision-state>
+
+<decision-state id="renewRequestCheck">
+	<if test="requestParameters.renew!='' and requestParameters.renew!= null" then="serviceAuthorizationCheck" else="generateServiceTicket"/>
+</decision-state>
+
+<global-transitions>
+	<!--
+	<transition to="viewLoginForm" on-exception="org.jasig.cas.services.UnauthorizedSsoServiceException"/>
+	<transition to="viewServiceErrorView" on-exception="org.springframework.webflow.execution.repository.NoSuchFlowExecutionException" />
+	<transition to="viewServiceErrorView" on-exception="org.jasig.cas.services.UnauthorizedServiceException" />
+	-->
+
+	<transition to="viewLoginForm" on-exception="org.jasig.cas.services.UnauthorizedSsoServiceException"/>
+	<transition to="viewServiceErrorView" on-exception="org.springframework.webflow.execution.repository.NoSuchFlowExecutionException" />
+	<transition to="serviceUnauthorizedCheck" on-exception="org.apereo.cas.services.UnauthorizedServiceException" />
+	<transition to="serviceUnauthorizedCheck" on-exception="org.apereo.cas.services.UnauthorizedServiceForPrincipalException" />
+</global-transitions>
+
+<end-state id="viewRedirectToUnauthorizedUrlView" view="externalRedirect:${flowScope.unauthorizedRedirectUrl}" />
+<end-state id="viewServiceErrorView" view="casServiceErrorView" />
+<end-state id="postView" view="casPostResponseView" />
+
+
+<view-state id="showWarningView" view="casConfirmView">
+	<transition on="success" to="finalizeWarning"/>
+</view-state>
+
+<action-state id="finalizeWarning">
+	<evaluate expression="serviceWarningAction"/>
+	<transition on="redirect" to="redirect"/>
+</action-state>
+
+<decision-state id="serviceUnauthorizedCheck">
+	<if test="flowScope.unauthorizedRedirectUrl != null" then="viewRedirectToUnauthorizedUrlView" else="viewServiceErrorView"/>
+</decision-state>
+
+<decision-state id="warn">
+	<if test="flowScope.warnCookieValue" then="showWarningView" else="redirect"/>
+</decision-state>
+
+<action-state id="terminateSession">
+	<evaluate expression="terminateSessionAction"/>
+	<transition to="gatewayRequestCheck"/>
+</action-state>
+
+<action-state id="gatewayServicesManagementCheck">
+	<evaluate expression="gatewayServicesManagementCheck"/>
+	<transition on="success" to="redirect"/>
+</action-state>
+
+<action-state id="startAuthenticate">
+	<evaluate expression="remoteAddressCheck"/> 
+	<transition on="success" to="sendTicketGrantingTicket"/>
+	<transition on="error" to="start_state"/>
+	<transition on="mfa-gauth" to="mfa-gauth"/>
+	<on-exit expression="clearWebflowCredentialsAction"/>
+</action-state>
+
+
+<action-state id="handleAuthenticationFailure">
+	<evaluate expression="authenticationExceptionHandler"/>   <!--  -->
+	<transition on="AccountDisabledException" to="casAccountDisabledView"/>
+	<transition on="AccountLockedException" to="casAccountLockedView"/>
+	<transition on="AccountPasswordMustChangeException" to="casMustChangePassView"/>
+	<transition on="CredentialExpiredException" to="casExpiredPassView"/>
+	<transition on="InvalidLoginLocationException" to="casBadWorkstationView"/>
+	<transition on="InvalidLoginTimeException" to="casBadHoursView"/>
+	<transition on="FailedLoginException" to="initializeLoginForm"/>
+	<transition on="AccountNotFoundException" to="initializeLoginForm"/>
+	<transition on="UnauthorizedServiceForPrincipalException" to="initializeLoginForm"/>
+	<transition on="PrincipalException" to="initializeLoginForm"/>
+	<transition on="UnsatisfiedAuthenticationPolicyException" to="initializeLoginForm"/>
+	<transition on="UnauthorizedAuthenticationException" to="casAuthenticationBlockedView"/>
+	<transition on="serviceUnauthorizedCheck" to="serviceUnauthorizedCheck"/>
+	<transition to="initializeLoginForm"/>
+</action-state>
+
+<view-state id="showAuthenticationWarningMessages" view="casLoginMessageView">
+	<on-entry>
+		<set name="${requestScope.messages}" value="${messageContext.allMessages}"/>
+	</on-entry>
+	<transition on="proceed" to="proceedFromAuthenticationWarningView"/>
+</view-state>
+
+<action-state id="proceedFromAuthenticationWarningView">
+	<evaluate expression="sendTicketGrantingTicketAction"/>
+	<transition to="serviceCheck"/>
+</action-state>
