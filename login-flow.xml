@@ -1,5 +1,6 @@
 <var name="credential" class="org.apereo.cas.authentication.UsernamePasswordCredential"/>
 
+ttttt
 <on-start>
 	<evaluate expression="initialFlowSetupAction"/>
 </on-start>
