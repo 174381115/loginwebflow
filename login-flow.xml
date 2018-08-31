@@ -7,6 +7,7 @@
 <action-state id="tokenAuthenticationCheck">   <!-- start state -->
 	<evaluate expression="tokenAuthenticationAction"/> 
 	<transition on="success" to="sendTicketGrantingTicket"/>
+	<transition on="warn" to="warn"/>
 	<transition on="mfa-gauth" to="mfa-gauth"/>
 	<transition on= "*"		to="clientAction"/>  <!-- getStartState---根据具体的情况分析, 调试得出的是clientAction -->
 	<on-exit expression="clearWebflowCredentialsAction"/>
